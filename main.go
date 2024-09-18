@@ -7,6 +7,8 @@ import (
     _ "github.com/lib/pq" // Import the PostgreSQL driver
     "log"
     "net/http"
+    "strconv"
+    "github.com/gorilla/mux"
 )
 
 type User struct {
@@ -52,8 +54,10 @@ func main() {
     }
 
     // Set up the HTTP server
-    http.HandleFunc("/users", createUserHandler)
-    log.Fatal(http.ListenAndServe(":8080", nil))
+    r := mux.NewRouter()
+    r.HandleFunc("/users", createUserHandler).Methods("POST")
+    r.HandleFunc("/users/{id}", getUserHandler).Methods("GET")
+    log.Fatal(http.ListenAndServe(":8080", r))
 }
 
 // Handler function to create a new user
@@ -80,4 +84,30 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 
     w.WriteHeader(http.StatusCreated)
     fmt.Fprintf(w, "User created successfully!")
+}
+
+// Handler function to get a user by ID
+func getUserHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    idStr := vars["id"]
+    id, err := strconv.Atoi(idStr)
+    if err != nil {
+        http.Error(w, "Invalid user ID", http.StatusBadRequest)
+        return
+    }
+
+    var user User
+    err = db.QueryRow("SELECT id, name, email, password FROM users WHERE id = $1", id).Scan(&user.ID, &user.Name, &user.Email, &user.Password)
+    if err != nil {
+        if err == sql.ErrNoRows {
+            http.Error(w, "User not found", http.StatusNotFound)
+        } else {
+            log.Printf("Failed to query user: %v", err)
+            http.Error(w, "Failed to query user", http.StatusInternalServerError)
+        }
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(user)
 }
