@@ -2,24 +2,24 @@ package main
 
 import (
     "database/sql"
+    "encoding/json"
     "fmt"
     _ "github.com/lib/pq" // Import the PostgreSQL driver
     "log"
     "net/http"
-    "strconv"
 )
 
-// type User struct {
-//     ID       int    `json:"id"`
-//     Name     string `json:"name"`
-//     Email    string `json:"email"`
-//     Password string `json:"password"`
-// }
+type User struct {
+    ID       int    `json:"id"`
+    Name     string `json:"name"`
+    Email    string `json:"email"`
+    Password string `json:"password"`
+}
 
 var db *sql.DB
 
 func main() {
-    // Connection string to connect to the PostgreSQL database
+    // Connection string to connect to PostgreSQL database
     connStr := "user=postgres password=abc@123 dbname=mydb sslmode=disable"
     
     // Open a connection to the database
@@ -63,25 +63,15 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Parse URL parameters
-    idStr := r.URL.Query().Get("id")
-    name := r.URL.Query().Get("name")
-    email := r.URL.Query().Get("email")
-    password := r.URL.Query().Get("password")
-
-    if idStr == "" || name == "" || email == "" || password == "" {
-        http.Error(w, "Missing URL parameters", http.StatusBadRequest)
-        return
-    }
-
-    id, err := strconv.Atoi(idStr)
+    var user User
+    err := json.NewDecoder(r.Body).Decode(&user)
     if err != nil {
-        http.Error(w, "Invalid ID parameter", http.StatusBadRequest)
+        http.Error(w, "Invalid request body", http.StatusBadRequest)
         return
     }
 
     // Insert data into the database
-    _, err = db.Exec("INSERT INTO users (id, name, email, password) VALUES ($1, $2, $3, $4)", id, name, email, password)
+    _, err = db.Exec("INSERT INTO users (id, name, email, password) VALUES ($1, $2, $3, $4)", user.ID, user.Name, user.Email, user.Password)
     if err != nil {
         log.Printf("Failed to insert data: %v", err)
         http.Error(w, "Failed to insert data", http.StatusInternalServerError)
