@@ -7,8 +7,11 @@ import (
     _ "github.com/lib/pq" // Import the PostgreSQL driver
     "log"
     "net/http"
+    "os"
     "strconv"
     "github.com/gorilla/mux"
+    "github.com/joho/godotenv"
+    "golang.org/x/crypto/bcrypt"
 )
 
 type User struct {
@@ -29,11 +32,23 @@ type Post struct {
 var db *sql.DB
 
 func main() {
-    // Connection string to connect to PostgreSQL database
-    connStr := "user=postgres password=abc@123 dbname=mydb sslmode=disable"
+    // Load environment variables from .env file
+    err := godotenv.Load()
+    if err != nil {
+        log.Fatal("Error loading .env file")
+    }
+
+    // Get the PostgreSQL credentials from environment variables
+    dbUser := os.Getenv("DB_USER")
+    dbPassword := os.Getenv("DB_PASSWORD")
+    dbName := os.Getenv("DB_NAME")
+    dbHost := os.Getenv("DB_HOST")
+    dbPort := os.Getenv("DB_PORT")
+
+    // Connection string to connect to PostgreSQL
+    connStr := fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%s sslmode=disable", dbUser, dbPassword, dbName, dbHost, dbPort)
     
     // Open a connection to the database
-    var err error
     db, err = sql.Open("postgres", connStr)
     if err != nil {
         log.Fatal("Failed to connect to the database:", err)
@@ -93,15 +108,27 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    var user User
+    var user struct {
+        Name     string `json:"name"`
+        Email    string `json:"email"`
+        Password string `json:"password"`
+    }
     err := json.NewDecoder(r.Body).Decode(&user)
     if err != nil {
         http.Error(w, "Invalid request body", http.StatusBadRequest)
         return
     }
 
-    // Insert data into the database
-    _, err = db.Exec("INSERT INTO users (id, name, email, password) VALUES ($1, $2, $3, $4)", user.ID, user.Name, user.Email, user.Password)
+    // Hash the password using bcrypt
+    hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+    if err != nil {
+        log.Printf("Failed to hash password: %v", err)
+        http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+        return
+    }
+
+    // Insert data into the database, excluding the id field
+    _, err = db.Exec("INSERT INTO users (name, email, password) VALUES ($1, $2, $3)", user.Name, user.Email, string(hashedPassword))
     if err != nil {
         log.Printf("Failed to insert data: %v", err)
         http.Error(w, "Failed to insert data", http.StatusInternalServerError)
@@ -152,8 +179,8 @@ func createPostHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Insert data into the database
-    _, err = db.Exec("INSERT INTO posts (id, user_id, caption, image_url, posted_timestamp) VALUES ($1, $2, $3, $4, $5)", post.ID, post.UserID, post.Caption, post.ImageURL, post.PostedTimestamp)
+    // Insert data into the database, excluding the id field
+    _, err = db.Exec("INSERT INTO posts (user_id, caption, image_url, posted_timestamp) VALUES ($1, $2, $3, $4)", post.UserID, post.Caption, post.ImageURL, post.PostedTimestamp)
     if err != nil {
         log.Printf("Failed to insert data: %v", err)
         http.Error(w, "Failed to insert data", http.StatusInternalServerError)
@@ -194,13 +221,13 @@ func getPostHandler(w http.ResponseWriter, r *http.Request) {
 func getUserPostsHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     idStr := vars["id"]
-    id, err := strconv.Atoi(idStr)
+    userID, err := strconv.Atoi(idStr)
     if err != nil {
         http.Error(w, "Invalid user ID", http.StatusBadRequest)
         return
     }
 
-    rows, err := db.Query("SELECT id, user_id, caption, image_url, posted_timestamp FROM posts WHERE user_id = $1", id)
+    rows, err := db.Query("SELECT id, user_id, caption, image_url, posted_timestamp FROM posts WHERE user_id = $1", userID)
     if err != nil {
         log.Printf("Failed to query posts: %v", err)
         http.Error(w, "Failed to query posts", http.StatusInternalServerError)
